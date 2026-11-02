@@ -1,9 +1,13 @@
+/**
+ * @file src/adapters/whatsapp.ts
+ * @description Transport layer implementation over @whiskeysockets/baileys.
+ */
+
 import {
   default as makeWASocket,
   DisconnectReason,
   useMultiFileAuthState,
-  type WASocket,
-  type proto
+  type WASocket
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import qrcode from 'qrcode-terminal'
@@ -44,7 +48,6 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       const { connection, lastDisconnect, qr } = update
 
       if (qr && this.config.printQR !== false) {
-        console.log('ꕤ✰ [WhatsApp] Escanea el código QR para conectar:')
         qrcode.generate(qr, { small: true })
       }
 
@@ -53,10 +56,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
         if (shouldReconnect) {
-          console.log('ꕤ✰ [WhatsApp] Reconectando sesión...')
           this.start().catch((err) => this.errorListener(err, this.platform))
-        } else {
-          console.log('ꕤ✰ [WhatsApp] Sesión cerrada permanentemente.')
         }
       }
     })
@@ -119,7 +119,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
   async send(channelId: string, content: string | ReplyOptions): Promise<SentResult> {
     if (!this.socket) {
-      throw new Error('[WhatsApp] Socket no está inicializado.')
+      throw new Error('[WhatsApp] Socket uninitialized.')
     }
     const payload = typeof content === 'string' ? content : content.text
     const sent = await this.socket.sendMessage(channelId, { text: payload })
