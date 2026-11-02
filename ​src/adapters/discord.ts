@@ -14,7 +14,8 @@ import type {
   MessageContext,
   ErrorListener,
   SentResult,
-  ReplyOptions
+  ReplyOptions,
+  UserAuthor
 } from '#core'
 
 export interface DiscordConfig {
@@ -41,17 +42,20 @@ export class DiscordAdapter implements AdapterLifecycle {
     this.client.on('messageCreate', async (raw) => {
       if (raw.author.bot || !this.dispatch) return
 
+      const authorData: UserAuthor = {
+        id: raw.author.id,
+        name: raw.author.displayName || raw.author.username,
+        username: raw.author.username,
+        isBot: raw.author.bot
+      }
+
       const ctx: MessageContext = {
         id: raw.id,
         platform: this.platform,
         text: raw.content || '',
         timestamp: raw.createdTimestamp,
-        user: {
-          id: raw.author.id,
-          name: raw.author.displayName || raw.author.username,
-          username: raw.author.username,
-          isBot: raw.author.bot
-        },
+        user: authorData,
+        author: authorData,
         channel: {
           id: raw.channelId,
           name: 'name' in raw.channel ? (raw.channel.name as string) : undefined,
@@ -101,4 +105,8 @@ export class DiscordAdapter implements AdapterLifecycle {
   onError(listener: ErrorListener): void {
     this.errorListener = listener
   }
+}
+
+export function discord(config: DiscordConfig): DiscordAdapter {
+  return new DiscordAdapter(config)
 }
