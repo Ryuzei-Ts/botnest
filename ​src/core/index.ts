@@ -3,6 +3,6 @@
  * @description Barrel export for core domain entities.
  */
 
-export * from './types.js'
-export * from './adapter.js'
-export * from './plugin.js'
+export * from './types.ts'
+export * from './adapter.ts'
+export * from './plugin.ts'
