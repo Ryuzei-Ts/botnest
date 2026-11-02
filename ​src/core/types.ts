@@ -29,6 +29,7 @@ export interface MessageContext {
   platform: 'discord' | 'telegram' | 'whatsapp' | string
   text: string
   user: UserAuthor
+  author: UserAuthor
   channel: ChannelDestination
   attachments: AttachmentItem[]
   raw: unknown
