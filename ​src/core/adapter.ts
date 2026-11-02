@@ -1,4 +1,9 @@
-import type { MessageContext, ErrorListener, SentResult, ReplyOptions } from './types.js'
+/**
+ * @file src/core/adapter.ts
+ * @description Standard lifecycle specification for transport layer adapters.
+ */
+
+import type { MessageContext, ErrorListener, SentResult, ReplyOptions } from './types.ts'
 
 export interface AdapterLifecycle {
   readonly platform: string
