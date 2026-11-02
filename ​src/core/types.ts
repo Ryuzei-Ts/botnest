@@ -1,3 +1,8 @@
+/**
+ * @file src/core/types.ts
+ * @description Universal data transfer contracts across all platform adapters.
+ */
+
 export interface UserAuthor {
   id: string
   name: string
