@@ -1,10 +1,7 @@
-// @file: src/queue/dispatcher-queue.ts
-// @author: Ryuzei-Ts
-// @package: @ryuzei/botnest
-// @changelog:
-//   - Priority-based outbound task scheduling.
-//   - Per-platform concurrency throttling and token-leaky execution.
-//   - Exponential backoff retry mechanics on transmission failure.
+/**
+ * @file src/queue/dispatcher-queue.ts
+ * @description Priority-based outbound rate limiter and dispatcher queue.
+ */
 
 export interface QueueTask<T = unknown> {
   id: string
