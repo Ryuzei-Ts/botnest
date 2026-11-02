@@ -16,9 +16,21 @@
     "forceConsistentCasingInFileNames": true,
     "paths": {
       "#core": ["./src/core/index.ts"],
+      "#core/*": ["./src/core/*.ts"],
       "#adapters": ["./src/adapters/index.ts"],
+      "#adapters/*": ["./src/adapters/*.ts"],
       "#engine": ["./src/engine/index.ts"],
-      "#loader": ["./src/loader/index.ts"]
+      "#engine/*": ["./src/engine/*.ts"],
+      "#loader": ["./src/loader/index.ts"],
+      "#loader/*": ["./src/loader/*.ts"],
+      "#queue": ["./src/queue/index.ts"],
+      "#queue/*": ["./src/queue/*.ts"],
+      "#storage": ["./src/storage/index.ts"],
+      "#storage/*": ["./src/storage/*.ts"],
+      "#telemetry": ["./src/telemetry/index.ts"],
+      "#telemetry/*": ["./src/telemetry/*.ts"],
+      "#security": ["./src/security/index.ts"],
+      "#security/*": ["./src/security/*.ts"]
     }
   },
   "include": ["src/**/*"]
