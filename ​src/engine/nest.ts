@@ -1,6 +1,6 @@
 /**
  * @file src/engine/nest.ts
- * @description Kernel runtime orchestrator with middleware pipeline dispatch.
+ * @description Kernel runtime orchestrator with fluent chaining and message handlers.
  */
 
 import type {
@@ -20,11 +20,23 @@ export class BotNest {
     console.error(`[BotNest Error] [${platform}]:`, err)
   }
 
-  mount(adapter: AdapterLifecycle): this {
-    if (this.adapters.has(adapter.platform)) {
-      throw new Error(`Adapter for platform "${adapter.platform}" is already mounted.`)
+  adapter(adapterInstance: AdapterLifecycle): this {
+    return this.mount(adapterInstance)
+  }
+
+  mount(adapterInstance: AdapterLifecycle): this {
+    if (this.adapters.has(adapterInstance.platform)) {
+      throw new Error(`Adapter for platform "${adapterInstance.platform}" is already mounted.`)
     }
-    this.adapters.set(adapter.platform, adapter)
+    this.adapters.set(adapterInstance.platform, adapterInstance)
+    return this
+  }
+
+  onMessage(handler: (ctx: MessageContext) => Promise<void> | void): this {
+    this.middlewares.push(async (ctx, next) => {
+      await handler(ctx)
+      await next()
+    })
     return this
   }
 
@@ -67,13 +79,13 @@ export class BotNest {
       await hook()
     }
 
-    for (const [platform, adapter] of this.adapters.entries()) {
-      adapter.onError((err, p, ctx) => this.errorHandler(err, p, ctx))
-      adapter.onDispatch(async (ctx) => {
+    for (const [platform, adapterInstance] of this.adapters.entries()) {
+      adapterInstance.onError((err, p, ctx) => this.errorHandler(err, p, ctx))
+      adapterInstance.onDispatch(async (ctx) => {
         await this.executePipeline(ctx)
       })
 
-      await adapter.start()
+      await adapterInstance.start()
     }
   }
 
@@ -82,8 +94,8 @@ export class BotNest {
       await hook()
     }
 
-    for (const adapter of this.adapters.values()) {
-      await adapter.stop()
+    for (const adapterInstance of this.adapters.values()) {
+      await adapterInstance.stop()
     }
   }
 }
