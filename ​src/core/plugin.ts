@@ -3,7 +3,7 @@
  * @description Extensibility contracts for kernel lifecycle plugins.
  */
 
-import type { MessageContext, NextFunction } from './types.js'
+import type { MessageContext, NextFunction } from './types.ts'
 
 export interface BotNestPlugin {
   name: string
