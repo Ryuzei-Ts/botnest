@@ -3,6 +3,6 @@
  * @description Barrel export for transport adapters.
  */
 
-export * from './discord.js'
-export * from './telegram.js'
-export * from './whatsapp.js'
+export * from './discord.ts'
+export * from './telegram.ts'
+export * from './whatsapp.ts'
