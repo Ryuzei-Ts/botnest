@@ -1,0 +1,33 @@
+{
+  "name": "@ryuzei/botnest",
+  "version": "1.0.0",
+  "description": "Unified universal multi-platform bot core and runtime",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "imports": {
+    "#core": "./src/core/index.ts",
+    "#adapters": "./src/adapters/index.ts",
+    "#engine": "./src/engine/index.ts",
+    "#loader": "./src/loader/index.ts"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "pino": "^9.5.0",
+    "qrcode-terminal": "^0.12.0",
+    "telegraf": "^4.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.0",
+    "@types/qrcode-terminal": "^0.12.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
