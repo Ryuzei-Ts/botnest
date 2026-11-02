@@ -1,3 +1,8 @@
+/**
+ * @file src/adapters/discord.ts
+ * @description Transport layer implementation over discord.js.
+ */
+
 import {
   Client,
   GatewayIntentBits,
