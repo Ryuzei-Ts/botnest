@@ -10,7 +10,8 @@ import type {
   MessageContext,
   ErrorListener,
   SentResult,
-  ReplyOptions
+  ReplyOptions,
+  UserAuthor
 } from '#core'
 
 export interface TelegramConfig {
@@ -30,19 +31,20 @@ export class TelegramAdapter implements AdapterLifecycle {
       if (!this.dispatch) return
 
       const from = telegramCtx.message.from
-      const text = telegramCtx.message.text
+      const authorData: UserAuthor = {
+        id: from.id.toString(),
+        name: [from.first_name, from.last_name].filter(Boolean).join(' '),
+        username: from.username,
+        isBot: from.is_bot
+      }
 
       const ctx: MessageContext = {
         id: telegramCtx.message.message_id.toString(),
         platform: this.platform,
-        text,
+        text: telegramCtx.message.text,
         timestamp: telegramCtx.message.date * 1000,
-        user: {
-          id: from.id.toString(),
-          name: [from.first_name, from.last_name].filter(Boolean).join(' '),
-          username: from.username,
-          isBot: from.is_bot
-        },
+        user: authorData,
+        author: authorData,
         channel: {
           id: telegramCtx.chat.id.toString(),
           name: 'title' in telegramCtx.chat ? telegramCtx.chat.title : undefined,
@@ -84,4 +86,8 @@ export class TelegramAdapter implements AdapterLifecycle {
   onError(listener: ErrorListener): void {
     this.errorListener = listener
   }
+}
+
+export function telegram(config: TelegramConfig): TelegramAdapter {
+  return new TelegramAdapter(config)
 }
