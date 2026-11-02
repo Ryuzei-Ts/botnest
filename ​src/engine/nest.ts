@@ -1,3 +1,8 @@
+/**
+ * @file src/engine/nest.ts
+ * @description Kernel runtime orchestrator with middleware pipeline dispatch.
+ */
+
 import type {
   AdapterLifecycle,
   MessageContext,
@@ -69,7 +74,6 @@ export class BotNest {
       })
 
       await adapter.start()
-      console.log(`ꕤ✰ [BotNest] Plataforma lista: ${platform}`)
     }
   }
 
@@ -81,7 +85,6 @@ export class BotNest {
     for (const adapter of this.adapters.values()) {
       await adapter.stop()
     }
-    console.log('[BotNest] Todos los servicios detenidos.')
   }
 }
 
