@@ -1,10 +1,10 @@
 /**
  * @file src/index.ts
  * @package @ryuzei/botnest
- * @description High-throughput multi-platform orchestrator entrypoint.
+ * @description High-throughput multi-platform orchestrator entrypoint with Python IPC worker.
  */
 
-import { createNest } from '#engine'
+import { createNest, PythonBridge } from '#engine'
 import { DiscordAdapter, TelegramAdapter, WhatsAppAdapter } from '#adapters'
 import { loadEnvironment } from '#loader'
 import { PlatformDispatcherQueue } from '#queue'
@@ -19,6 +19,7 @@ const queue = new PlatformDispatcherQueue()
 const sessions = new SessionManager()
 const metrics = new MetricsCollector()
 const security = new SecurityGuard()
+const python = new PythonBridge()
 
 nest.use(async (ctx: MessageContext, next: NextFunction) => {
   if (security.isDuplicate(`${ctx.platform}:${ctx.id}`)) {
@@ -51,6 +52,25 @@ nest.use(async (ctx: MessageContext, next: NextFunction) => {
       const content = security.sanitizeOutput(`[${ctx.platform.toUpperCase()}] pong [${latency}ms]`)
       await ctx.reply(content)
     })
+    return
+  }
+
+  if (command.startsWith('!nlp ')) {
+    const targetText = ctx.text.slice(5).trim()
+    try {
+      const pyRes = await python.execute({
+        command: 'sentiment',
+        text: targetText,
+        platform: ctx.platform
+      })
+
+      const replyContent = `[NLP Worker ${pyRes.runtime}] Sentiment: ${JSON.stringify(pyRes.result)} (${pyRes.latency_ms}ms)`
+      await queue.enqueue(ctx.platform, async () => {
+        await ctx.reply(security.sanitizeOutput(replyContent))
+      })
+    } catch (err) {
+      await ctx.reply(`[Worker Error] Failed to connect to Python IPC: ${(err as Error).message}`)
+    }
     return
   }
 
