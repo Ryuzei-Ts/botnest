@@ -1,3 +1,8 @@
+/**
+ * @file src/loader/env.ts
+ * @description Environment parsing and strongly-typed configuration loader.
+ */
+
 import dotenv from 'dotenv'
 
 export interface BotNestEnv {
