@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:botnest:schemas:message",
+  "title": "BotNestMessage",
+  "type": "object",
+  "required": ["id", "platform", "text", "timestamp", "user", "channel"],
+  "properties": {
+    "id": { "type": "string" },
+    "platform": { "type": "string", "enum": ["discord", "telegram", "whatsapp"] },
+    "text": { "type": "string" },
+    "timestamp": { "type": "integer" },
+    "user": {
+      "type": "object",
+      "required": ["id", "name", "isBot"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "username": { "type": "string" },
+        "isBot": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "channel": {
+      "type": "object",
+      "required": ["id", "isDirectMessage"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "isDirectMessage": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": true
+}
