@@ -12,16 +12,24 @@
   },
   "imports": {
     "#core": "./src/core/index.ts",
+    "#core/*": "./src/core/*.ts",
     "#adapters": "./src/adapters/index.ts",
+    "#adapters/*": "./src/adapters/*.ts",
     "#engine": "./src/engine/index.ts",
+    "#engine/*": "./src/engine/*.ts",
     "#loader": "./src/loader/index.ts",
+    "#loader/*": "./src/loader/*.ts",
     "#queue": "./src/queue/index.ts",
+    "#queue/*": "./src/queue/*.ts",
     "#storage": "./src/storage/index.ts",
+    "#storage/*": "./src/storage/*.ts",
     "#telemetry": "./src/telemetry/index.ts",
-    "#security": "./src/security/index.ts"
+    "#telemetry/*": "./src/telemetry/*.ts",
+    "#security": "./src/security/index.ts",
+    "#security/*": "./src/security/*.ts"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.9",
+    "@whiskeysockets/baileys": "*",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "pino": "^9.5.0",
