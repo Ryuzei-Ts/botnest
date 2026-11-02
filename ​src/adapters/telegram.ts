@@ -1,3 +1,8 @@
+/**
+ * @file src/adapters/telegram.ts
+ * @description Transport layer implementation over Telegraf.
+ */
+
 import { Telegraf } from 'telegraf'
 import { message } from 'telegraf/filters'
 import type {
