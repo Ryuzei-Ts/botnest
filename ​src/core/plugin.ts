@@ -1,3 +1,8 @@
+/**
+ * @file src/core/plugin.ts
+ * @description Extensibility contracts for kernel lifecycle plugins.
+ */
+
 import type { MessageContext, NextFunction } from './types.js'
 
 export interface BotNestPlugin {
