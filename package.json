@@ -14,10 +14,14 @@
     "#core": "./src/core/index.ts",
     "#adapters": "./src/adapters/index.ts",
     "#engine": "./src/engine/index.ts",
-    "#loader": "./src/loader/index.ts"
+    "#loader": "./src/loader/index.ts",
+    "#queue": "./src/queue/index.ts",
+    "#storage": "./src/storage/index.ts",
+    "#telemetry": "./src/telemetry/index.ts",
+    "#security": "./src/security/index.ts"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "*",
+    "@whiskeysockets/baileys": "^6.7.9",
     "discord.js": "^14.16.3",
     "dotenv": "^16.4.5",
     "pino": "^9.5.0",
