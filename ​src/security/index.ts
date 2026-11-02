@@ -4,3 +4,4 @@
  */
 
 export * from './sanitizer.ts'
+export * from './validator.ts'
