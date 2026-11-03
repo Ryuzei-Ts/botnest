@@ -2,6 +2,10 @@
 
 # 🪺 BotNest
 
+<div align="center">
+  <img src="https://cdn.nexylight.xyz/files/kt70td2z.jpeg" alt="Arte ASCII de BotNest" width="100%" />
+</div>
+
 **Universal Multi-Platform Bot Engine & Polyglot Runtime Orchestrator**
 
 *One unified core. Every messaging platform. Zero boilerplate duplication.*
