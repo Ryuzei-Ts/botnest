@@ -292,7 +292,37 @@ nest.onMessage(async (ctx) => {
 
 ---
 
-### 2. Cross-Platform Global Commands
+### 2. Platform-Specific Prefixes
+
+You can restrict and customize command triggers per ecosystem (for example, allowing only `!` and `:` on WhatsApp, `/` and `!` on Discord, and strictly `/` on Telegram):
+
+```javascript
+const PLATFORM_PREFIXES = {
+  whatsapp: ['!', ':'],
+  discord: ['/', '!'],
+  telegram: ['/']
+};
+
+nest.onMessage(async (ctx) => {
+  const rawText = ctx.text?.trim();
+  if (!rawText) return;
+
+  const allowedPrefixes = PLATFORM_PREFIXES[ctx.platform] || ['!'];
+  const matchedPrefix = allowedPrefixes.find((p) => rawText.startsWith(p));
+  if (!matchedPrefix) return;
+
+  const withoutPrefix = rawText.slice(matchedPrefix.length).trim();
+  if (!withoutPrefix) return;
+
+  const [rawCommand, ...args] = withoutPrefix.split(/\s+/);
+  const command = rawCommand.toLowerCase();
+  const textPayload = args.join(' ');
+  const authorName = ctx.author?.name || ctx.user?.name || 'Usuario';
+  const prefix = matchedPrefix;
+});
+```
+
+### 3. Cross-Platform Global Commands
 
 Write commands once in a single handler. They run natively across WhatsApp, Discord, and Telegram:
 
@@ -326,7 +356,7 @@ switch (command) {
 
 ---
 
-### 3. Platform-Isolated Commands
+### 4. Platform-Isolated Commands
 
 Differentiate commands intended only for specific platforms using `if (ctx.platform === '...')`:
 
@@ -372,7 +402,7 @@ if (ctx.platform === 'telegram') {
 
 ---
 
-### 4. Dynamic Context-Aware Menu
+### 5. Dynamic Context-Aware Menu
 
 Present a menu that dynamically displays only the commands relevant to the platform the user is chatting from:
 
