@@ -4,14 +4,23 @@
  * @description High-throughput multi-platform orchestrator entrypoint with Python IPC worker.
  */
 
-import { createNest, PythonBridge } from '#engine'
-import { DiscordAdapter, TelegramAdapter, WhatsAppAdapter } from '#adapters'
+import { BotNest, createNest, PythonBridge } from '#engine'
+import { DiscordAdapter, TelegramAdapter, WhatsAppAdapter, discord, telegram, whatsapp } from '#adapters'
 import { loadEnvironment } from '#loader'
 import { PlatformDispatcherQueue } from '#queue'
 import { SessionManager } from '#storage'
 import { MetricsCollector } from '#telemetry'
 import { SecurityGuard } from '#security'
 import type { MessageContext, NextFunction } from '#core'
+
+export * from '#core'
+export * from '#engine'
+export * from '#adapters'
+export * from '#storage'
+export * from '#queue'
+export * from '#telemetry'
+export * from '#security'
+export * from '#loader'
 
 const env = loadEnvironment()
 const nest = createNest()
@@ -44,13 +53,21 @@ nest.use(async (ctx: MessageContext, next: NextFunction) => {
 
   const command = ctx.text.trim().toLowerCase()
 
-  if (command === '!ping') {
+  if (command === '!ping' || command === '/ping') {
     const start = ctx.timestamp
     const latency = Date.now() - start
 
     await queue.enqueue(ctx.platform, async () => {
       const content = security.sanitizeOutput(`[${ctx.platform.toUpperCase()}] pong [${latency}ms]`)
       await ctx.reply(content)
+    })
+    return
+  }
+
+  if (command === '!hola' || command === '/hola') {
+    await queue.enqueue(ctx.platform, async () => {
+      const targetName = ctx.author?.name || ctx.user.name
+      await ctx.reply(security.sanitizeOutput(`Hola ${targetName}`))
     })
     return
   }
@@ -99,16 +116,16 @@ nest.use(async (ctx: MessageContext, next: NextFunction) => {
 })
 
 if (env.DISCORD_TOKEN) {
-  nest.mount(new DiscordAdapter({ token: env.DISCORD_TOKEN }))
+  nest.adapter(discord({ token: env.DISCORD_TOKEN }))
 }
 
 if (env.TELEGRAM_TOKEN) {
-  nest.mount(new TelegramAdapter({ token: env.TELEGRAM_TOKEN }))
+  nest.adapter(telegram({ token: env.TELEGRAM_TOKEN }))
 }
 
 if (env.WHATSAPP_ENABLED) {
-  nest.mount(
-    new WhatsAppAdapter({
+  nest.adapter(
+    whatsapp({
       sessionPath: env.WHATSAPP_AUTH_DIR,
       printQR: true
     })
