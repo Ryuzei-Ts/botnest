@@ -143,6 +143,53 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     })
   }
 
+  public async requestSubbot(rawPhone: string): Promise<{ botId: string; code: string; number: string }> {
+    const cleanNum = cleanPhoneNumber(rawPhone)
+    if (!cleanNum || cleanNum.length < 8) {
+      throw new Error('Número telefónico no válido.')
+    }
+
+    const botId = `sub_${cleanNum}`
+    const targetSessionPath = this.resolvePath(botId, true)
+
+    if (this.sessions.has(botId)) {
+      await this.stopSession(botId)
+    }
+
+    return new Promise(async (resolve, reject) => {
+      let resolved = false
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true
+          reject(new Error('Timeout: WhatsApp no devolvió el código a tiempo.'))
+        }
+      }, 40000)
+
+      try {
+        await this.spawnSession({
+          botId,
+          isSubbot: true,
+          sessionPath: targetSessionPath,
+          usePairingCode: true,
+          phoneNumber: cleanNum,
+          onPairingCode: (code) => {
+            if (!resolved) {
+              resolved = true
+              clearTimeout(timeout)
+              resolve({ botId, code, number: cleanNum })
+            }
+          }
+        })
+      } catch (err) {
+        if (!resolved) {
+          resolved = true
+          clearTimeout(timeout)
+          reject(err)
+        }
+      }
+    })
+  }
+
   public async spawnSession(options: WhatsAppSessionOptions): Promise<WASocket> {
     const botId = options.botId ?? `sub_${Date.now()}`
     const isSubbot = Boolean(options.isSubbot)
@@ -193,7 +240,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
           if (!number && options.phoneNumberProvider) {
             number = await options.phoneNumberProvider()
           }
-          if (number) {
+          if (number && !sock.authState.creds.registered) {
             const clean = cleanPhoneNumber(number)
             const code = await sock.requestPairingCode(clean)
             if (options.onPairingCode) {
@@ -203,7 +250,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         } catch (err) {
           this.errorListener(err as Error, this.platform, { botId })
         }
-      }, 3500)
+      }, 4000)
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -215,13 +262,13 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
       if (connection === 'open') {
         sessionRecord.status = 'open'
-        const hook = options.onConnect ?? this.config.onConnect
+        const hook = options.onConnect ?? (botId === 'main' ? this.config.onConnect : null)
         if (typeof hook === 'function') {
           await hook(sock, botId)
         } else if (typeof hook === 'string') {
           console.log(hook)
-        } else {
-          console.log(`[WhatsApp] Sesión "${botId}" conectada y lista para recibir mensajes.`)
+        } else if (!isSubbot) {
+          console.log(`[WhatsApp] Sesión "${botId}" conectada.`)
         }
       }
 
@@ -231,11 +278,15 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
         if (shouldReconnect) {
-          setTimeout(async () => {
-            await this.spawnSession(options).catch((err) =>
-              this.errorListener(err, this.platform, { botId })
-            )
-          }, 2000)
+          if (!isSubbot) {
+            setTimeout(async () => {
+              if (this.sessions.get(botId)?.status === 'closed') {
+                await this.spawnSession(options).catch((err) =>
+                  this.errorListener(err, this.platform, { botId })
+                )
+              }
+            }, 3000)
+          }
         } else {
           this.sessions.delete(botId)
         }
@@ -299,7 +350,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
   public async stopSession(botId: string): Promise<boolean> {
     const session = this.sessions.get(botId)
     if (!session) return false
-    session.socket.end(new Error(`Session ${botId} manually terminated.`))
+    try {
+      session.socket.end(undefined)
+    } catch (_) {}
     this.sessions.delete(botId)
     return true
   }
