@@ -1,24 +1,4 @@
-import {
-  default as makeWASocket,
-  DisconnectReason,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion,
-  lidToJid,
-  resolveJid,
-  resolveAll,
-  normalizeJid,
-  validateJid,
-  getSenderInfo,
-  sharedLidPhoneCache,
-  isLidUser,
-  isPnUser,
-  getBotJid,
-  setBotMap,
-  resolveUsername,
-  isUsername,
-  type WASocket,
-  type proto
-} from '@whiskeysockets/baileys'
+import * as BaileysPkg from '@whiskeysockets/baileys'
 import pino from 'pino'
 import qrcode from 'qrcode-terminal'
 import path from 'node:path'
@@ -31,6 +11,52 @@ import type {
   ReplyOptions,
   UserAuthor
 } from '#core'
+
+const makeWASocket = (BaileysPkg as any).default ?? BaileysPkg
+const DisconnectReason = (BaileysPkg as any).DisconnectReason ?? {}
+const useMultiFileAuthState = (BaileysPkg as any).useMultiFileAuthState
+const fetchLatestBaileysVersion = (BaileysPkg as any).fetchLatestBaileysVersion
+
+const lidToJid = (BaileysPkg as any).lidToJid ?? ((lid: string) => lid)
+const normalizeJid = (BaileysPkg as any).normalizeJid ?? ((jid: string) => {
+  if (!jid) return ''
+  const clean = jid.split('@')[0].replace(/[^0-9]/g, '')
+  return clean ? `${clean}@s.whatsapp.net` : jid
+})
+const isLidUser = (BaileysPkg as any).isLidUser ?? ((jid: string) => typeof jid === 'string' && jid.endsWith('@lid'))
+const isPnUser = (BaileysPkg as any).isPnUser ?? ((jid: string) => typeof jid === 'string' && jid.endsWith('@s.whatsapp.net'))
+const isUsername = (BaileysPkg as any).isUsername ?? ((u: string) => typeof u === 'string' && u.startsWith('@'))
+const resolveUsername = (BaileysPkg as any).resolveUsername ?? (async () => null)
+const setBotMap = (BaileysPkg as any).setBotMap ?? (() => {})
+
+const fallbackLidCache = new Map<string, string>()
+const sharedLidPhoneCache = (BaileysPkg as any).sharedLidPhoneCache ?? {
+  getPhoneForLid: (lid: string) => fallbackLidCache.get(lid) || null,
+  getLidForPhone: (phone: string) => {
+    for (const [k, v] of fallbackLidCache.entries()) {
+      if (v === phone) return k
+    }
+    return null
+  },
+  set: (lid: string, phone: string) => {
+    fallbackLidCache.set(lid, phone)
+  }
+}
+
+const getSenderInfo = (BaileysPkg as any).getSenderInfo ?? ((raw: any) => {
+  const remote = raw?.key?.remoteJid || ''
+  const participant = raw?.key?.participant
+  const isGroup = remote.endsWith('@g.us')
+  const resolved = isGroup ? participant : remote
+  return {
+    jid: resolved,
+    lid: undefined,
+    isGroup
+  }
+})
+
+type WASocket = any
+type proto = any
 
 const originalStdoutWrite = process.stdout.write.bind(process.stdout)
 const originalStderrWrite = process.stderr.write.bind(process.stderr)
@@ -203,12 +229,13 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     const mainSock = this.getSession('main')
     let resolvedIdentifier = rawTarget.trim()
 
-    if (isUsername(resolvedIdentifier) && mainSock) {
-      const resolved = await resolveUsername(resolvedIdentifier, mainSock.onWhatsApp.bind(mainSock))
-      if (!resolved) {
-        throw new Error(`No se pudo resolver el username: ${resolvedIdentifier}`)
-      }
-      resolvedIdentifier = resolved
+    if (isUsername(resolvedIdentifier) && mainSock && typeof mainSock.onWhatsApp === 'function') {
+      try {
+        const resolved = await resolveUsername(resolvedIdentifier, mainSock.onWhatsApp.bind(mainSock))
+        if (resolved) {
+          resolvedIdentifier = resolved
+        }
+      } catch (_) {}
     }
 
     const cleanNum = cleanPhoneNumber(resolvedIdentifier)
@@ -267,9 +294,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(targetSessionPath)
-    const { version } = await fetchLatestBaileysVersion().catch(() => ({
-      version: [2, 3000, 1015901307] as [number, number, number]
-    }))
+    const { version } = typeof fetchLatestBaileysVersion === 'function'
+      ? await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] as [number, number, number] }))
+      : { version: [2, 3000, 1015901307] as [number, number, number] }
 
     const sock = makeWASocket({
       version,
@@ -346,7 +373,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       }, 3000)
     }
 
-    sock.ev.on('connection.update', async (update) => {
+    sock.ev.on('connection.update', async (update: any) => {
       const { connection, lastDisconnect, qr } = update
 
       if (qr && options.printQR) {
@@ -388,7 +415,12 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
         const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode
 
-        if (statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === DisconnectReason.forbidden || statusCode === 403) {
+        if (
+          statusCode === DisconnectReason.loggedOut ||
+          statusCode === 401 ||
+          statusCode === DisconnectReason.forbidden ||
+          statusCode === 403
+        ) {
           try {
             fs.rmSync(targetSessionPath, { recursive: true, force: true })
           } catch (_) {}
@@ -427,7 +459,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       }
     })
 
-    sock.ev.on('messages.upsert', async (chatUpdate) => {
+    sock.ev.on('messages.upsert', async (chatUpdate: any) => {
       lastMsgTime = Date.now()
       if (chatUpdate.type !== 'notify' || !this.dispatch) return
 
@@ -439,7 +471,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
         const senderInfo = typeof getSenderInfo === 'function'
           ? getSenderInfo(raw)
-          : { jid: raw.key.participant || raw.key.remoteJid, lid: undefined, isGroup: raw.key.remoteJid?.endsWith('@g.us') }
+          : { jid: raw.key.participant || raw.key.remoteJid, lid: undefined, isGroup: Boolean(raw.key.remoteJid?.endsWith('@g.us')) }
 
         let rawSenderJid = cleanDeviceJid(senderInfo.jid || raw.key.participant || raw.key.remoteJid)
         let rawSenderLid = cleanDeviceJid(senderInfo.lid)
