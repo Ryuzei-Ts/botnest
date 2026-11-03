@@ -36,7 +36,7 @@ export class DiscordAdapter implements AdapterLifecycle {
       partials: [Partials.Channel, Partials.Message]
     })
 
-    this.client.once('ready', async (c) => {
+    this.client.once('clientReady', async (c) => {
       if (typeof this.config.onConnect === 'function') {
         await this.config.onConnect(c)
       } else if (typeof this.config.onConnect === 'string') {
