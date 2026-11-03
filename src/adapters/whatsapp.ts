@@ -216,6 +216,62 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     return path.join(base, subfolder, botId)
   }
 
+  public async resolveUserPhoneNumber(rawId: string, remoteGroupJid?: string): Promise<string | null> {
+    if (!rawId) return null
+    const cleanId = cleanDeviceJid(rawId)
+
+    if (cleanId.endsWith('@s.whatsapp.net')) {
+      const num = cleanPhoneNumber(cleanId.split('@')[0])
+      return num.length >= 8 && num.length <= 15 ? num : null
+    }
+
+    if (isLidUser(cleanId) || (!cleanId.includes('@') && cleanId.length > 14)) {
+      const lidFormat = cleanId.includes('@') ? cleanId : `${cleanId}@lid`
+
+      const cached = sharedLidPhoneCache.getPhoneForLid(lidFormat)
+      if (cached) {
+        const num = cleanPhoneNumber(cleanDeviceJid(cached).split('@')[0])
+        if (num.length >= 8 && num.length <= 15) return num
+      }
+
+      try {
+        const direct = lidToJid(lidFormat)
+        if (direct && direct.endsWith('@s.whatsapp.net')) {
+          const num = cleanPhoneNumber(cleanDeviceJid(direct).split('@')[0])
+          if (num.length >= 8 && num.length <= 15) return num
+        }
+      } catch (_) {}
+
+      if (remoteGroupJid && remoteGroupJid.endsWith('@g.us')) {
+        const sock = this.getSession('main')
+        if (sock && typeof sock.groupMetadata === 'function') {
+          try {
+            const meta = await sock.groupMetadata(remoteGroupJid)
+            for (const p of meta?.participants || []) {
+              const pLid = cleanDeviceJid((p as any).lid)
+              const pJid = cleanDeviceJid(p.id)
+              if (pLid && pJid && pJid.endsWith('@s.whatsapp.net')) {
+                sharedLidPhoneCache.set(pLid, pJid)
+                sharedLidPhoneCache.set(pJid, pLid)
+                if (pLid === lidFormat || pLid.split('@')[0] === cleanId.split('@')[0]) {
+                  const num = cleanPhoneNumber(pJid.split('@')[0])
+                  if (num.length >= 8 && num.length <= 15) return num
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    const onlyDigits = cleanPhoneNumber(cleanId)
+    if (onlyDigits && onlyDigits.length >= 8 && onlyDigits.length <= 15) {
+      return onlyDigits
+    }
+
+    return null
+  }
+
   async start(): Promise<void> {
     const mainBotId = this.config.botId ?? 'main'
     await this.spawnSession({
@@ -225,7 +281,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     })
   }
 
-  public async requestSubbot(rawTarget: string): Promise<{ botId: string; code: string; number: string }> {
+  public async requestSubbot(rawTarget: string, groupJidContext?: string): Promise<{ botId: string; code: string; number: string }> {
     const mainSock = this.getSession('main')
     let resolvedIdentifier = rawTarget.trim()
 
@@ -238,9 +294,13 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       } catch (_) {}
     }
 
-    const cleanNum = cleanPhoneNumber(resolvedIdentifier)
-    if (!cleanNum || cleanNum.length < 8) {
-      throw new Error('Número de teléfono inválido.')
+    let cleanNum = await this.resolveUserPhoneNumber(resolvedIdentifier, groupJidContext)
+    if (!cleanNum) {
+      cleanNum = cleanPhoneNumber(resolvedIdentifier)
+    }
+
+    if (!cleanNum || cleanNum.length < 8 || cleanNum.length > 15) {
+      throw new Error(`Identificador no válido para vincular (${resolvedIdentifier}). No es un número telefónico real.`)
     }
 
     const botId = `sub_${cleanNum}`
