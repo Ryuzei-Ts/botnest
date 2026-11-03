@@ -80,10 +80,11 @@ interface ActiveSessionInstance {
   sessionPath: string
   socket: WASocket
   status: 'connecting' | 'open' | 'closed'
+  watchdog?: NodeJS.Timeout
 }
 
 function cleanPhoneNumber(num: string): string {
-  let cleaned = num.replace(/[^0-9]/g, '')
+  let cleaned = String(num).replace(/[^0-9]/g, '')
   if (cleaned.startsWith('521') && cleaned.length === 13) {
     cleaned = '52' + cleaned.slice(3)
   }
@@ -146,7 +147,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
   public async requestSubbot(rawPhone: string): Promise<{ botId: string; code: string; number: string }> {
     const cleanNum = cleanPhoneNumber(rawPhone)
     if (!cleanNum || cleanNum.length < 8) {
-      throw new Error('Número telefónico no válido.')
+      throw new Error('Número de teléfono inválido.')
     }
 
     const botId = `sub_${cleanNum}`
@@ -161,9 +162,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true
-          reject(new Error('Timeout: WhatsApp no devolvió el código a tiempo.'))
+          reject(new Error('Timeout de 60s esperando el código de WhatsApp.'))
         }
-      }, 40000)
+      }, 60000)
 
       try {
         await this.spawnSession({
@@ -212,12 +213,12 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       browser: options.browser ?? this.config.browser ?? ['Ubuntu', 'Chrome', '20.0.04'],
       generateHighQualityLinkPreview: false,
       syncFullHistory: false,
+      shouldSyncHistoryMessage: () => false,
       markOnlineOnConnect: false,
       connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 0,
+      defaultQueryTimeoutMs: 60000,
       keepAliveIntervalMs: 25000,
       emitOwnEvents: false,
-      fireInitQueries: false,
       transactionOpts: { maxCommitRetries: 2, delayBetweenTriesMs: 50 }
     })
 
@@ -230,6 +231,32 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     }
 
     this.sessions.set(botId, sessionRecord)
+
+    let lastMsgTime = Date.now()
+    const watchdog = setInterval(async () => {
+      const inactiveSec = Math.floor((Date.now() - lastMsgTime) / 1000)
+      if (inactiveSec < 600) return
+
+      if (sock.ws?.readyState !== 1) {
+        clearInterval(watchdog)
+        if (this.sessions.has(botId)) {
+          await this.spawnSession(options).catch(() => {})
+        }
+        return
+      }
+
+      try {
+        await sock.sendPresenceUpdate('available')
+        lastMsgTime = Date.now()
+      } catch {
+        clearInterval(watchdog)
+        if (this.sessions.has(botId)) {
+          await this.spawnSession(options).catch(() => {})
+        }
+      }
+    }, 120000)
+
+    sessionRecord.watchdog = watchdog
 
     sock.ev.on('creds.update', saveCreds)
 
@@ -250,7 +277,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         } catch (err) {
           this.errorListener(err as Error, this.platform, { botId })
         }
-      }, 4000)
+      }, 3000)
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -262,30 +289,57 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
       if (connection === 'open') {
         sessionRecord.status = 'open'
-        const hook = options.onConnect ?? (botId === 'main' ? this.config.onConnect : null)
-        if (typeof hook === 'function') {
-          await hook(sock, botId)
-        } else if (typeof hook === 'string') {
-          console.log(hook)
-        } else if (!isSubbot) {
-          console.log(`[WhatsApp] Sesión "${botId}" conectada.`)
+
+        if (!isSubbot) {
+          const hook = options.onConnect ?? this.config.onConnect
+          if (typeof hook === 'function') {
+            await hook(sock, botId)
+          } else if (typeof hook === 'string') {
+            console.log(hook)
+          } else {
+            console.log(`[WhatsApp] Sesión principal "${botId}" conectada.`)
+          }
         }
       }
 
       if (connection === 'close') {
         sessionRecord.status = 'closed'
-        const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut
+        if (sessionRecord.watchdog) clearInterval(sessionRecord.watchdog)
 
-        if (shouldReconnect) {
-          if (!isSubbot) {
-            setTimeout(async () => {
-              if (this.sessions.get(botId)?.status === 'closed') {
-                await this.spawnSession(options).catch((err) =>
-                  this.errorListener(err, this.platform, { botId })
-                )
-              }
-            }, 3000)
+        const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode
+
+        if (statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === DisconnectReason.forbidden || statusCode === 403) {
+          try {
+            fs.rmSync(targetSessionPath, { recursive: true, force: true })
+          } catch (_) {}
+          this.sessions.delete(botId)
+          return
+        }
+
+        if (statusCode === DisconnectReason.connectionReplaced) {
+          this.sessions.delete(botId)
+          return
+        }
+
+        if (statusCode === 405) {
+          await new Promise((r) => setTimeout(r, 60000))
+          if (this.sessions.has(botId)) {
+            await this.spawnSession(options).catch((err) => this.errorListener(err, this.platform, { botId }))
+          }
+          return
+        }
+
+        if (statusCode === DisconnectReason.restartRequired || statusCode === 515) {
+          if (this.sessions.has(botId)) {
+            await this.spawnSession(options).catch((err) => this.errorListener(err, this.platform, { botId }))
+          }
+          return
+        }
+
+        if (!isSubbot) {
+          await new Promise((r) => setTimeout(r, 5000))
+          if (this.sessions.has(botId)) {
+            await this.spawnSession(options).catch((err) => this.errorListener(err, this.platform, { botId }))
           }
         } else {
           this.sessions.delete(botId)
@@ -294,6 +348,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     })
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
+      lastMsgTime = Date.now()
       if (chatUpdate.type !== 'notify' || !this.dispatch) return
 
       for (const raw of chatUpdate.messages) {
@@ -350,6 +405,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
   public async stopSession(botId: string): Promise<boolean> {
     const session = this.sessions.get(botId)
     if (!session) return false
+    if (session.watchdog) clearInterval(session.watchdog)
     try {
       session.socket.end(undefined)
     } catch (_) {}
