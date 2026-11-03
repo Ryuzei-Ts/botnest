@@ -2,52 +2,106 @@
 
 # 🪺 BotNest
 
-**Universal multi-platform bot core & messaging orchestrator**
+**Universal Multi-Platform Bot Engine & Polyglot Runtime Orchestrator**
 
-Write your application logic once. Run simultaneously across Discord, Telegram, and WhatsApp with low-latency IPC sidecars.
+*One unified core. Every messaging platform. Zero boilerplate duplication.*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/Node.js-22.x-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6+-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Rust](https://img.shields.io/badge/Rust-Native-black?logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-Native%20CDylib-DEA584?logo=rust&logoColor=black)](https://www.rust-lang.org/)
 
 </div>
 
 ---
 
-## ⚡ Overview
+## 📋 Table of Contents
 
-Today, writing bots across multiple services means duplicating your entire business logic across separate APIs (`discord.js`, `telegraf`, `baileys`). When scaling, high throughput causes IP bans, memory leaks, and fragmented state management.
-
-**BotNest** solves this by decoupling transport adapters from your domain code:
-- **Universal Context (`ctx`):** Identical abstraction for authors, messages, attachments, and replies.
-- **Outbound Dispatcher Queue:** Priority queue with token-leaky rate limiting per platform to prevent bans.
-- **Polyglot Acceleration:** Offload heavy sentiment/NLP tasks to a low-latency Python IPC worker and memory-intensive deduplication to Rust.
-- **Native Subpath Imports:** Clean module resolution via `#core`, `#adapters`, `#engine`, `#storage`, `#queue`, and `#telemetry`.
+- [The Core Problem](#-the-core-problem)
+- [System Architecture](#-system-architecture)
+- [Key Features](#-key-features)
+- [Subpath Imports Layout](#-subpath-imports-layout)
+- [Quick Start](#-quick-start)
+- [Core API Reference](#-core-api-reference)
+  - [Universal MessageContext](#universal-messagecontext)
+  - [Fluent Chaining API](#fluent-chaining-api)
+  - [Middleware Pipeline](#middleware-pipeline)
+- [Enterprise Subsystems](#-enterprise-subsystems)
+  - [Platform Dispatcher Queue](#platform-dispatcher-queue)
+  - [State & Session Management](#state--session-management)
+  - [Telemetry & Quantile Metrics](#telemetry--quantile-metrics)
+  - [Zero-Network Contract Validator](#zero-network-contract-validator)
+- [Polyglot Sidecars](#-polyglot-sidecars)
+  - [Python AI Worker (IPC Socket)](#python-ai-worker-ipc-socket)
+  - [Rust Native Accelerator](#rust-native-accelerator)
+- [Benchmarks](#-benchmarks)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
-## 📦 Architecture
+## 💥 The Core Problem
+
+When deploying conversational bots across multiple platforms (Discord, Telegram, WhatsApp), developers face structural obstacles:
+
+1. **API Fragmentation**: `discord.js`, `telegraf`, and `@whiskeysockets/baileys` expose radically different interfaces for the same primitives (users, channels, messages, attachments).
+2. **Duplicated Business Logic**: Handlers, validation, and AI calls are rewritten 3 times.
+3. **Throttling & IP Bans**: Blasting messages without platform-specific leaky-bucket queues causes account suspensions (especially on WhatsApp via Baileys and Telegram rate limits).
+4. **V8 Garbage Collection Overhead**: Handling high-throughput string sanitization and message deduplication in Node.js creates memory pressure and event-loop lag.
+
+**BotNest** abstracts away the transport layer, providing an enterprise runtime with strict contracts, automated queue throttling, and zero-overhead native sidecars.
+
+---
+
+## 🏛 System Architecture
 
 ```text
-                        ┌───────────────────┐
-                        │   User Messages   │
-                        └─────────┬─────────┘
-                                  ▼
-      ┌────────────────────────────────────────────────────────┐
-      │                   Transport Layer                      │
-      │   [Discord.js]        [Telegraf]        [Baileys]      │
-      └───────────────────────────┬────────────────────────────┘
-                                  ▼
-      ┌────────────────────────────────────────────────────────┐
-      │                   BotNest Engine                       │
-      │   • Deduplication Ring      • Token-Bucket Limiter     │
-      │   • Output Sanitizer        • Telemetry (p50/p90/p99)  │
-      │   • Session Store (TTL)     • Priority Outbound Queue  │
-      └─────────────┬────────────────────────────┬─────────────┘
-                    │                            │
-                    ▼                            ▼
-      ┌──────────────────────────┐  ┌──────────────────────────┐
-      │   TypeScript Pipelines   │  │   Python IPC Worker      │
-      │   (/ping, /hola, events) │  │   (Unix Domain Sockets)  │
-      └──────────────────────────┘  └──────────────────────────┘
+                                  ┌───────────────────────────┐
+                                  │   Inbound Chat Traffic    │
+                                  │ (Discord / TG / WhatsApp) │
+                                  └─────────────┬─────────────┘
+                                                │
+                                                ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                                 Transport Layer Adapters                                  │
+│                                                                                           │
+│   ┌───────────────────────┐   ┌───────────────────────┐   ┌───────────────────────────┐   │
+│   │    DiscordAdapter     │   │    TelegramAdapter    │   │      WhatsAppAdapter      │   │
+│   │    (discord.js v14)   │   │     (telegraf v4)     │   │  (@whiskeysockets/baileys)│   │
+│   └───────────┬───────────┘   └───────────┬───────────┘   └─────────────┬─────────────┘   │
+└───────────────┼───────────────────────────┼─────────────────────────────┼─────────────────┘
+                └───────────────────────────┼─────────────────────────────┘
+                                            ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                                  BotNest Kernel Engine                                    │
+│                                                                                           │
+│  ┌───────────────────────┐   ┌───────────────────────┐   ┌─────────────────────────────┐  │
+│  │ Security Deduplicator │──▶│  Contract Validator   │──▶│    Session Manager (TTL)    │  │
+│  │ (Ring Buffer / Rust)  │   │   (Zero-Network JSON) │   │     (In-Memory / Driver)    │  │
+│  └───────────────────────┘   └───────────────────────┘   └──────────────┬──────────────┘  │
+│                                                                         │                 │
+│                                      ┌──────────────────────────────────┘                 │
+│                                      ▼                                                    │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │                               Koa-Style Middleware Onion                            │  │
+│  │   [Logging] ──▶ [Rate-Limiter] ──▶ [Command Router] ──▶ [Polyglot Bridge Worker]   │  │
+│  └─────────────────────────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────┬───────────────────────────────────────────────┘
+                                            ▼
+┌───────────────────────────────────────────────────────────────────────────────────────────┐
+│                                Outbound Dispatch Pipeline                                 │
+│                                                                                           │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │                       PlatformDispatcherQueue (Priority FIFO)                       │  │
+│  │    • Discord: 250ms interval, 5 concurrent workers                                  │  │
+│  │    • Telegram: 50ms interval, 30 concurrent workers                                 │  │
+│  │    • WhatsApp: 1200ms interval, 1 concurrent worker (Anti-Ban Protection)           │  │
+│  └────────────────────────────────────────┬────────────────────────────────────────────┘  │
+└───────────────────────────────────────────┼───────────────────────────────────────────────┘
+                                            │
+                                            ▼
+                                ┌───────────────────────┐
+                                │   Delivered Message   │
+                                └───────────────────────┘
