@@ -1,50 +1,54 @@
-use dashmap::DashSet;
 use napi_derive::napi;
-use std::sync::Arc;
 
-#[napi]
-pub struct FastSecurityRing {
-    dedup_set: Arc<DashSet<String>>,
-    max_capacity: usize,
+#[napi(object)]
+pub struct ParsedCommand {
+    pub is_command: bool,
+    pub prefix: String,
+    pub command: String,
+    pub payload: String,
 }
 
 #[napi]
-impl FastSecurityRing {
-    #[napi(constructor)]
-    pub fn new(capacity: i32) -> Self {
-        FastSecurityRing {
-            dedup_set: Arc::new(DashSet::new()),
-            max_capacity: capacity as usize,
+pub fn parse_message(text: String, prefixes: Vec<String>) -> ParsedCommand {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return ParsedCommand {
+            is_command: false,
+            prefix: String::new(),
+            command: String::new(),
+            payload: String::new(),
+        };
+    }
+
+    for p in &prefixes {
+        if trimmed.starts_with(p) {
+            let without_prefix = trimmed[p.len()..].trim_start();
+            let mut parts = without_prefix.splitn(2, char::is_whitespace);
+            let cmd = parts.next().unwrap_or("").to_lowercase();
+            let payload = parts.next().unwrap_or("").trim().to_string();
+
+            return ParsedCommand {
+                is_command: !cmd.is_empty(),
+                prefix: p.clone(),
+                command: cmd,
+                payload,
+            };
         }
     }
 
-    #[napi]
-    pub fn check_and_insert(&self, event_id: String) -> bool {
-        if self.dedup_set.contains(&event_id) {
-            return true;
-        }
-
-        if self.dedup_set.len() >= self.max_capacity {
-            if let Some(entry) = self.dedup_set.iter().next() {
-                let key = entry.key().clone();
-                drop(entry);
-                self.dedup_set.remove(&key);
-            }
-        }
-
-        self.dedup_set.insert(event_id);
-        false
+    ParsedCommand {
+        is_command: false,
+        prefix: String::new(),
+        command: String::new(),
+        payload: String::new(),
     }
+}
 
-    #[napi]
-    pub fn fast_sanitize(&self, input: String) -> String {
-        input
-            .replace('\u{200B}', "")
-            .replace('\u{200C}', "")
-            .replace('\u{200D}', "")
-            .replace('\u{FEFF}', "")
-            .replace("\r\n", "\n")
-            .trim()
-            .to_string()
+#[napi]
+pub fn clean_phone_number(num: String) -> String {
+    let mut cleaned: String = num.chars().filter(|c| c.is_ascii_digit()).collect();
+    if cleaned.starts_with("521") && cleaned.len() == 13 {
+        cleaned = format!("52{}", &cleaned[3..]);
     }
+    cleaned
 }
