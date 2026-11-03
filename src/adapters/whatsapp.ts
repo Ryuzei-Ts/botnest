@@ -127,7 +127,7 @@ export function cleanDeviceJid(rawJid?: string | null): string {
   return rawJid.replace(/:\d+(?=@)/, '').trim()
 }
 
-export function cleanPhoneNumber(num: string): string {
+function cleanPhoneNumber(num: string): string {
   let cleaned = String(num).replace(/[^0-9]/g, '')
   if (cleaned.startsWith('521') && cleaned.length === 13) {
     cleaned = '52' + cleaned.slice(3)
