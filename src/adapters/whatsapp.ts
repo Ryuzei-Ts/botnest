@@ -3,6 +3,19 @@ import {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  lidToJid,
+  resolveJid,
+  resolveAll,
+  normalizeJid,
+  validateJid,
+  getSenderInfo,
+  sharedLidPhoneCache,
+  isLidUser,
+  isPnUser,
+  getBotJid,
+  setBotMap,
+  resolveUsername,
+  isUsername,
   type WASocket,
   type proto
 } from '@whiskeysockets/baileys'
@@ -83,12 +96,54 @@ interface ActiveSessionInstance {
   watchdog?: NodeJS.Timeout
 }
 
-function cleanPhoneNumber(num: string): string {
+export function cleanDeviceJid(rawJid?: string | null): string {
+  if (!rawJid) return ''
+  return rawJid.replace(/:\d+(?=@)/, '').trim()
+}
+
+export function cleanPhoneNumber(num: string): string {
   let cleaned = String(num).replace(/[^0-9]/g, '')
   if (cleaned.startsWith('521') && cleaned.length === 13) {
     cleaned = '52' + cleaned.slice(3)
   }
   return cleaned
+}
+
+export async function resolveTargetJid(target: string, sock?: WASocket): Promise<string> {
+  const cleanTarget = target.trim()
+  if (!cleanTarget) return ''
+
+  if (isUsername(cleanTarget) && sock && typeof sock.onWhatsApp === 'function') {
+    try {
+      const resolved = await resolveUsername(cleanTarget, sock.onWhatsApp.bind(sock))
+      if (resolved) return cleanDeviceJid(resolved)
+    } catch (_) {}
+  }
+
+  const sanitized = cleanDeviceJid(cleanTarget)
+
+  if (isLidUser(sanitized)) {
+    const cachedPhone = sharedLidPhoneCache.getPhoneForLid(sanitized)
+    if (cachedPhone) return cleanDeviceJid(cachedPhone)
+
+    try {
+      const directJid = lidToJid(sanitized)
+      if (directJid) return cleanDeviceJid(directJid)
+    } catch (_) {}
+
+    return sanitized
+  }
+
+  if (isPnUser(sanitized)) {
+    return cleanDeviceJid(normalizeJid(sanitized))
+  }
+
+  const numericOnly = cleanPhoneNumber(sanitized)
+  if (numericOnly) {
+    return `${numericOnly}@s.whatsapp.net`
+  }
+
+  return sanitized
 }
 
 function extractText(message: proto.IMessage | null | undefined): string {
@@ -144,8 +199,19 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     })
   }
 
-  public async requestSubbot(rawPhone: string): Promise<{ botId: string; code: string; number: string }> {
-    const cleanNum = cleanPhoneNumber(rawPhone)
+  public async requestSubbot(rawTarget: string): Promise<{ botId: string; code: string; number: string }> {
+    const mainSock = this.getSession('main')
+    let resolvedIdentifier = rawTarget.trim()
+
+    if (isUsername(resolvedIdentifier) && mainSock) {
+      const resolved = await resolveUsername(resolvedIdentifier, mainSock.onWhatsApp.bind(mainSock))
+      if (!resolved) {
+        throw new Error(`No se pudo resolver el username: ${resolvedIdentifier}`)
+      }
+      resolvedIdentifier = resolved
+    }
+
+    const cleanNum = cleanPhoneNumber(resolvedIdentifier)
     if (!cleanNum || cleanNum.length < 8) {
       throw new Error('Número de teléfono inválido.')
     }
@@ -290,6 +356,20 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       if (connection === 'open') {
         sessionRecord.status = 'open'
 
+        const botPnJid = cleanDeviceJid(sock.user?.id)
+        const botLidJid = cleanDeviceJid(sock.user?.lid)
+
+        if (botPnJid && botLidJid) {
+          sharedLidPhoneCache.set(botLidJid, botPnJid)
+          sharedLidPhoneCache.set(botPnJid, botLidJid)
+        }
+
+        try {
+          if (typeof setBotMap === 'function') {
+            setBotMap(botPnJid, botLidJid)
+          }
+        } catch (_) {}
+
         if (!isSubbot) {
           const hook = options.onConnect ?? this.config.onConnect
           if (typeof hook === 'function') {
@@ -353,22 +433,56 @@ export class WhatsAppAdapter implements AdapterLifecycle {
 
       for (const raw of chatUpdate.messages) {
         if (!raw.message) continue
-        const allowSelf = options.allowFromMe ?? this.config.allowFromMe ?? false
-        if (raw.key.fromMe && !allowSelf) continue
 
-        const remoteJid = raw.key.remoteJid
+        const botPnJid = cleanDeviceJid(sock.user?.id)
+        const botLidJid = cleanDeviceJid(sock.user?.lid)
+
+        const senderInfo = typeof getSenderInfo === 'function'
+          ? getSenderInfo(raw)
+          : { jid: raw.key.participant || raw.key.remoteJid, lid: undefined, isGroup: raw.key.remoteJid?.endsWith('@g.us') }
+
+        let rawSenderJid = cleanDeviceJid(senderInfo.jid || raw.key.participant || raw.key.remoteJid)
+        let rawSenderLid = cleanDeviceJid(senderInfo.lid)
+
+        if (rawSenderLid && rawSenderJid && rawSenderJid.endsWith('@s.whatsapp.net')) {
+          sharedLidPhoneCache.set(rawSenderLid, rawSenderJid)
+          sharedLidPhoneCache.set(rawSenderJid, rawSenderLid)
+        }
+
+        if (isLidUser(rawSenderJid) && !rawSenderLid) {
+          rawSenderLid = rawSenderJid
+          const cached = sharedLidPhoneCache.getPhoneForLid(rawSenderLid)
+          if (cached) {
+            rawSenderJid = cleanDeviceJid(cached)
+          } else {
+            try {
+              const direct = lidToJid(rawSenderLid)
+              if (direct) rawSenderJid = cleanDeviceJid(direct)
+            } catch (_) {}
+          }
+        }
+
+        const isSelf = Boolean(
+          raw.key.fromMe ||
+          (botPnJid && rawSenderJid === botPnJid) ||
+          (botLidJid && rawSenderLid && rawSenderLid === botLidJid) ||
+          (botLidJid && rawSenderJid === botLidJid)
+        )
+
+        const allowSelf = options.allowFromMe ?? this.config.allowFromMe ?? false
+        if (isSelf && !allowSelf) continue
+
+        const remoteJid = cleanDeviceJid(raw.key.remoteJid)
         if (!remoteJid || remoteJid === 'status@broadcast') continue
 
         const text = extractText(raw.message)
-        const senderJid = raw.key.fromMe
-          ? sock.user?.id?.split(':')[0] + '@s.whatsapp.net'
-          : raw.key.participant || remoteJid
-        const isGroup = remoteJid.endsWith('@g.us')
+        const isGroup = Boolean(senderInfo.isGroup || remoteJid.endsWith('@g.us'))
 
-        const authorData: UserAuthor = {
-          id: senderJid,
-          name: raw.pushName || senderJid.split('@')[0],
-          isBot: Boolean(raw.key.fromMe)
+        const authorData: UserAuthor & { lid?: string | null } = {
+          id: rawSenderJid,
+          name: raw.pushName || rawSenderJid.split('@')[0],
+          isBot: isSelf,
+          lid: rawSenderLid || null
         }
 
         const ctx: MessageContext = {
@@ -383,7 +497,14 @@ export class WhatsAppAdapter implements AdapterLifecycle {
             isDirectMessage: !isGroup
           },
           attachments: [],
-          raw: { ...raw, botId, isSubbot },
+          raw: {
+            ...raw,
+            botId,
+            isSubbot,
+            resolvedJid: rawSenderJid,
+            resolvedLid: rawSenderLid || null,
+            senderInfo
+          },
           reply: async (content) => {
             const payload = typeof content === 'string' ? content : content.text
             const sent = await sock.sendMessage(remoteJid, { text: payload }, { quoted: raw })
@@ -437,8 +558,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     if (!socket) {
       throw new Error(`[WhatsApp] Socket session "${botId}" is not active or initialized.`)
     }
+    const resolvedTarget = await resolveTargetJid(channelId, socket)
     const payload = typeof content === 'string' ? content : content.text
-    const sent = await socket.sendMessage(channelId, { text: payload })
+    const sent = await socket.sendMessage(resolvedTarget, { text: payload })
     return {
       id: sent?.key.id ?? Date.now().toString(),
       platform: this.platform,
