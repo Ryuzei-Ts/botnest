@@ -65,19 +65,24 @@ export class TelegramAdapter implements AdapterLifecycle {
   }
 
   async start(): Promise<void> {
-    this.bot
-      .launch()
-      .then(async () => {
-        const botInfo = this.bot.botInfo
-        if (typeof this.config.onConnect === 'function') {
-          await this.config.onConnect(botInfo)
-        } else if (typeof this.config.onConnect === 'string') {
-          console.log(this.config.onConnect)
-        } else {
-          console.log(`[Telegram] Conectado exitosamente como @${botInfo?.username || 'bot'}`)
-        }
+    try {
+      const me = await this.bot.telegram.getMe()
+      await this.bot.telegram.deleteWebhook({ drop_pending_updates: true })
+
+      if (typeof this.config.onConnect === 'function') {
+        await this.config.onConnect(me)
+      } else if (typeof this.config.onConnect === 'string') {
+        console.log(this.config.onConnect)
+      } else {
+        console.log(`[Telegram] Conectado exitosamente como @${me.username}`)
+      }
+
+      this.bot.launch({ dropPendingUpdates: true }).catch((err) => {
+        this.errorListener(err, this.platform)
       })
-      .catch((err) => this.errorListener(err, this.platform))
+    } catch (err) {
+      this.errorListener(err as Error, this.platform)
+    }
   }
 
   async stop(): Promise<void> {
