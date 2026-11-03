@@ -1,8 +1,3 @@
-/**
- * @file src/adapters/discord.ts
- * @description Transport layer implementation over discord.js.
- */
-
 import {
   Client,
   GatewayIntentBits,
@@ -20,6 +15,8 @@ import type {
 
 export interface DiscordConfig {
   token: string
+  allowBots?: boolean
+  onConnect?: string | ((client: Client) => void | Promise<void>)
 }
 
 export class DiscordAdapter implements AdapterLifecycle {
@@ -39,8 +36,19 @@ export class DiscordAdapter implements AdapterLifecycle {
       partials: [Partials.Channel, Partials.Message]
     })
 
+    this.client.once('ready', async (c) => {
+      if (typeof this.config.onConnect === 'function') {
+        await this.config.onConnect(c)
+      } else if (typeof this.config.onConnect === 'string') {
+        console.log(this.config.onConnect)
+      } else {
+        console.log(`[Discord] Conectado exitosamente como ${c.user.tag}`)
+      }
+    })
+
     this.client.on('messageCreate', async (raw) => {
-      if (raw.author.bot || !this.dispatch) return
+      if (!this.dispatch) return
+      if (raw.author.bot && !this.config.allowBots) return
 
       const authorData: UserAuthor = {
         id: raw.author.id,
