@@ -1,8 +1,3 @@
-/**
- * @file src/adapters/whatsapp.ts
- * @description Production-grade Baileys adapter with deep message unnesting, stable pairing codes & Signal handshake protection.
- */
-
 import {
   default as makeWASocket,
   DisconnectReason,
@@ -10,11 +5,11 @@ import {
   fetchLatestBaileysVersion,
   type WASocket,
   type proto
-} from '@whiskeysockets/baileys';
-import pino from 'pino';
-import qrcode from 'qrcode-terminal';
-import path from 'node:path';
-import fs from 'node:fs';
+} from '@whiskeysockets/baileys'
+import pino from 'pino'
+import qrcode from 'qrcode-terminal'
+import path from 'node:path'
+import fs from 'node:fs'
 import type {
   AdapterLifecycle,
   MessageContext,
@@ -22,49 +17,87 @@ import type {
   SentResult,
   ReplyOptions,
   UserAuthor
-} from '#core';
+} from '#core'
+
+const originalStdoutWrite = process.stdout.write.bind(process.stdout)
+const originalStderrWrite = process.stderr.write.bind(process.stderr)
+
+const filterNoise = (chunk: any, encoding?: any, callback?: any) => {
+  const str = typeof chunk === 'string' ? chunk : chunk?.toString?.('utf8') || ''
+
+  if (
+    str.includes('Closing open session') ||
+    str.includes('Closing session') ||
+    str.includes('SessionEntry') ||
+    str.includes('ephemeralKeyPair') ||
+    str.includes('currentRatchet') ||
+    str.includes('prekey bundle') ||
+    str.includes('chainKey') ||
+    str.includes('registrationId') ||
+    str.includes('bad-mac') ||
+    str.includes('Bad MAC') ||
+    str.includes('Failed to decrypt') ||
+    str.includes('Session error') ||
+    str.includes('Session error:') ||
+    str.includes('Error: bad-mac')
+  ) {
+    if (typeof callback === 'function') callback()
+    return true
+  }
+
+  return originalStdoutWrite(chunk, encoding, callback)
+}
+
+process.stdout.write = filterNoise as any
+process.stderr.write = filterNoise as any
+
+process.on('uncaughtException', () => {})
+process.on('unhandledRejection', () => {})
+process.on('uncaughtExceptionMonitor', () => {})
 
 export interface WhatsAppSessionOptions {
-  botId?: string;
-  isSubbot?: boolean;
-  sessionPath?: string;
-  printQR?: boolean;
-  usePairingCode?: boolean;
-  phoneNumber?: string;
-  phoneNumberProvider?: () => Promise<string>;
-  onPairingCode?: (code: string) => void;
-  browser?: [string, string, string];
+  botId?: string
+  isSubbot?: boolean
+  sessionPath?: string
+  printQR?: boolean
+  usePairingCode?: boolean
+  phoneNumber?: string
+  phoneNumberProvider?: () => Promise<string>
+  onPairingCode?: (code: string) => void
+  browser?: [string, string, string]
+  allowFromMe?: boolean
+  onConnect?: string | ((socket: WASocket, botId: string) => void | Promise<void>)
 }
 
 export interface WhatsAppConfig extends WhatsAppSessionOptions {
-  baseSessionsDir?: string;
-  resolveSessionPath?: (botId: string, isSubbot: boolean) => string;
+  baseSessionsDir?: string
+  resolveSessionPath?: (botId: string, isSubbot: boolean) => string
 }
 
 interface ActiveSessionInstance {
-  botId: string;
-  isSubbot: boolean;
-  sessionPath: string;
-  socket: WASocket;
-  status: 'connecting' | 'open' | 'closed';
+  botId: string
+  isSubbot: boolean
+  sessionPath: string
+  socket: WASocket
+  status: 'connecting' | 'open' | 'closed'
 }
 
 function cleanPhoneNumber(num: string): string {
-  let cleaned = num.replace(/[^0-9]/g, '');
+  let cleaned = num.replace(/[^0-9]/g, '')
   if (cleaned.startsWith('521') && cleaned.length === 13) {
-    cleaned = '52' + cleaned.slice(3);
+    cleaned = '52' + cleaned.slice(3)
   }
-  return cleaned;
+  return cleaned
 }
 
 function extractText(message: proto.IMessage | null | undefined): string {
-  if (!message) return '';
+  if (!message) return ''
 
-  let m: any = message;
-  if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
-  if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
-  if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
-  if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+  let m: any = message
+  if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message
+  if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message
+  if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message
+  if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message
 
   return (
     m.conversation ||
@@ -77,52 +110,52 @@ function extractText(message: proto.IMessage | null | undefined): string {
     m.templateButtonReplyMessage?.selectedId ||
     m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
     ''
-  ).trim();
+  ).trim()
 }
 
 export class WhatsAppAdapter implements AdapterLifecycle {
-  readonly platform = 'whatsapp';
-  private sessions = new Map<string, ActiveSessionInstance>();
-  private dispatch: ((ctx: MessageContext) => Promise<void>) | null = null;
+  readonly platform = 'whatsapp'
+  private sessions = new Map<string, ActiveSessionInstance>()
+  private dispatch: ((ctx: MessageContext) => Promise<void>) | null = null
   private errorListener: ErrorListener = (err, platform, ctx) =>
-    console.error(`[WhatsApp Error] [${platform}]:`, err);
+    console.error(`[WhatsApp Error] [${platform}]:`, err)
 
   constructor(private config: WhatsAppConfig = {}) {}
 
   public resolvePath(botId = 'main', isSubbot = false): string {
     if (this.config.resolveSessionPath) {
-      return this.config.resolveSessionPath(botId, isSubbot);
+      return this.config.resolveSessionPath(botId, isSubbot)
     }
     if (this.config.sessionPath && botId === 'main') {
-      return this.config.sessionPath;
+      return this.config.sessionPath
     }
-    const base = this.config.baseSessionsDir ?? './sessions';
-    const subfolder = isSubbot ? 'subbots' : 'core';
-    return path.join(base, subfolder, botId);
+    const base = this.config.baseSessionsDir ?? './sessions'
+    const subfolder = isSubbot ? 'subbots' : 'core'
+    return path.join(base, subfolder, botId)
   }
 
   async start(): Promise<void> {
-    const mainBotId = this.config.botId ?? 'main';
+    const mainBotId = this.config.botId ?? 'main'
     await this.spawnSession({
       ...this.config,
       botId: mainBotId,
       isSubbot: false
-    });
+    })
   }
 
   public async spawnSession(options: WhatsAppSessionOptions): Promise<WASocket> {
-    const botId = options.botId ?? `sub_${Date.now()}`;
-    const isSubbot = Boolean(options.isSubbot);
-    const targetSessionPath = options.sessionPath ?? this.resolvePath(botId, isSubbot);
+    const botId = options.botId ?? `sub_${Date.now()}`
+    const isSubbot = Boolean(options.isSubbot)
+    const targetSessionPath = options.sessionPath ?? this.resolvePath(botId, isSubbot)
 
     if (!fs.existsSync(targetSessionPath)) {
-      fs.mkdirSync(targetSessionPath, { recursive: true });
+      fs.mkdirSync(targetSessionPath, { recursive: true })
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState(targetSessionPath);
+    const { state, saveCreds } = await useMultiFileAuthState(targetSessionPath)
     const { version } = await fetchLatestBaileysVersion().catch(() => ({
       version: [2, 3000, 1015901307] as [number, number, number]
-    }));
+    }))
 
     const sock = makeWASocket({
       version,
@@ -139,7 +172,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       emitOwnEvents: false,
       fireInitQueries: false,
       transactionOpts: { maxCommitRetries: 2, delayBetweenTriesMs: 50 }
-    });
+    })
 
     const sessionRecord: ActiveSessionInstance = {
       botId,
@@ -147,78 +180,90 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       sessionPath: targetSessionPath,
       socket: sock,
       status: 'connecting'
-    };
+    }
 
-    this.sessions.set(botId, sessionRecord);
+    this.sessions.set(botId, sessionRecord)
 
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on('creds.update', saveCreds)
 
     if (!sock.authState.creds.registered && options.usePairingCode) {
       setTimeout(async () => {
         try {
-          let number = options.phoneNumber;
+          let number = options.phoneNumber
           if (!number && options.phoneNumberProvider) {
-            number = await options.phoneNumberProvider();
+            number = await options.phoneNumberProvider()
           }
           if (number) {
-            const clean = cleanPhoneNumber(number);
-            const code = await sock.requestPairingCode(clean);
+            const clean = cleanPhoneNumber(number)
+            const code = await sock.requestPairingCode(clean)
             if (options.onPairingCode) {
-              options.onPairingCode(code);
+              options.onPairingCode(code)
             }
           }
         } catch (err) {
-          this.errorListener(err as Error, this.platform, { botId });
+          this.errorListener(err as Error, this.platform, { botId })
         }
-      }, 3500);
+      }, 3500)
     }
 
     sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
+      const { connection, lastDisconnect, qr } = update
 
       if (qr && options.printQR) {
-        qrcode.generate(qr, { small: true });
+        qrcode.generate(qr, { small: true })
       }
 
       if (connection === 'open') {
-        sessionRecord.status = 'open';
+        sessionRecord.status = 'open'
+        const hook = options.onConnect ?? this.config.onConnect
+        if (typeof hook === 'function') {
+          await hook(sock, botId)
+        } else if (typeof hook === 'string') {
+          console.log(hook)
+        } else {
+          console.log(`[WhatsApp] Sesión "${botId}" conectada y lista para recibir mensajes.`)
+        }
       }
 
       if (connection === 'close') {
-        sessionRecord.status = 'closed';
-        const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        sessionRecord.status = 'closed'
+        const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } })?.output?.statusCode
+        const shouldReconnect = statusCode !== DisconnectReason.loggedOut
 
         if (shouldReconnect) {
           setTimeout(async () => {
             await this.spawnSession(options).catch((err) =>
               this.errorListener(err, this.platform, { botId })
-            );
-          }, 2000);
+            )
+          }, 2000)
         } else {
-          this.sessions.delete(botId);
+          this.sessions.delete(botId)
         }
       }
-    });
+    })
 
     sock.ev.on('messages.upsert', async (chatUpdate) => {
-      if (chatUpdate.type !== 'notify' || !this.dispatch) return;
+      if (chatUpdate.type !== 'notify' || !this.dispatch) return
 
       for (const raw of chatUpdate.messages) {
-        if (!raw.message || raw.key.fromMe) continue;
+        if (!raw.message) continue
+        const allowSelf = options.allowFromMe ?? this.config.allowFromMe ?? false
+        if (raw.key.fromMe && !allowSelf) continue
 
-        const remoteJid = raw.key.remoteJid;
-        if (!remoteJid || remoteJid === 'status@broadcast') continue;
+        const remoteJid = raw.key.remoteJid
+        if (!remoteJid || remoteJid === 'status@broadcast') continue
 
-        const text = extractText(raw.message);
-        const senderJid = raw.key.participant || remoteJid;
-        const isGroup = remoteJid.endsWith('@g.us');
+        const text = extractText(raw.message)
+        const senderJid = raw.key.fromMe
+          ? sock.user?.id?.split(':')[0] + '@s.whatsapp.net'
+          : raw.key.participant || remoteJid
+        const isGroup = remoteJid.endsWith('@g.us')
 
         const authorData: UserAuthor = {
           id: senderJid,
           name: raw.pushName || senderJid.split('@')[0],
-          isBot: false
-        };
+          isBot: Boolean(raw.key.fromMe)
+        }
 
         const ctx: MessageContext = {
           id: raw.key.id ?? Date.now().toString(),
@@ -234,33 +279,33 @@ export class WhatsAppAdapter implements AdapterLifecycle {
           attachments: [],
           raw: { ...raw, botId, isSubbot },
           reply: async (content) => {
-            const payload = typeof content === 'string' ? content : content.text;
-            const sent = await sock.sendMessage(remoteJid, { text: payload }, { quoted: raw });
+            const payload = typeof content === 'string' ? content : content.text
+            const sent = await sock.sendMessage(remoteJid, { text: payload }, { quoted: raw })
             return {
               id: sent?.key.id ?? Date.now().toString(),
               platform: this.platform,
               timestamp: Date.now()
-            };
+            }
           }
-        };
+        }
 
-        this.dispatch(ctx).catch((err) => this.errorListener(err, this.platform, raw));
+        await this.dispatch(ctx).catch((err) => this.errorListener(err, this.platform, raw))
       }
-    });
+    })
 
-    return sock;
+    return sock
   }
 
   public async stopSession(botId: string): Promise<boolean> {
-    const session = this.sessions.get(botId);
-    if (!session) return false;
-    session.socket.end(new Error(`Session ${botId} manually terminated.`));
-    this.sessions.delete(botId);
-    return true;
+    const session = this.sessions.get(botId)
+    if (!session) return false
+    session.socket.end(new Error(`Session ${botId} manually terminated.`))
+    this.sessions.delete(botId)
+    return true
   }
 
   public getSession(botId = 'main'): WASocket | undefined {
-    return this.sessions.get(botId)?.socket;
+    return this.sessions.get(botId)?.socket
   }
 
   public listSessions(): Array<{ botId: string; isSubbot: boolean; status: string; sessionPath: string }> {
@@ -269,38 +314,38 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       isSubbot: s.isSubbot,
       status: s.status,
       sessionPath: s.sessionPath
-    }));
+    }))
   }
 
   async stop(): Promise<void> {
     for (const [botId] of this.sessions) {
-      await this.stopSession(botId);
+      await this.stopSession(botId)
     }
   }
 
   async send(channelId: string, content: string | ReplyOptions, botId = 'main'): Promise<SentResult> {
-    const socket = this.getSession(botId);
+    const socket = this.getSession(botId)
     if (!socket) {
-      throw new Error(`[WhatsApp] Socket session "${botId}" is not active or initialized.`);
+      throw new Error(`[WhatsApp] Socket session "${botId}" is not active or initialized.`)
     }
-    const payload = typeof content === 'string' ? content : content.text;
-    const sent = await socket.sendMessage(channelId, { text: payload });
+    const payload = typeof content === 'string' ? content : content.text
+    const sent = await socket.sendMessage(channelId, { text: payload })
     return {
       id: sent?.key.id ?? Date.now().toString(),
       platform: this.platform,
       timestamp: Date.now()
-    };
+    }
   }
 
   onDispatch(dispatcher: (ctx: MessageContext) => Promise<void>): void {
-    this.dispatch = dispatcher;
+    this.dispatch = dispatcher
   }
 
   onError(listener: ErrorListener): void {
-    this.errorListener = listener;
+    this.errorListener = listener
   }
 }
 
 export function whatsapp(config: WhatsAppConfig = {}): WhatsAppAdapter {
-  return new WhatsAppAdapter(config);
+  return new WhatsAppAdapter(config)
 }
