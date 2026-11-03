@@ -3,33 +3,102 @@
   "$id": "urn:botnest:schemas:message",
   "title": "BotNestMessage",
   "type": "object",
-  "required": ["id", "platform", "text", "timestamp", "user", "channel"],
+  "required": [
+    "id",
+    "platform",
+    "text",
+    "timestamp",
+    "user",
+    "channel"
+  ],
   "properties": {
-    "id": { "type": "string" },
-    "platform": { "type": "string", "enum": ["discord", "telegram", "whatsapp"] },
-    "text": { "type": "string" },
-    "timestamp": { "type": "integer" },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["discord", "telegram", "whatsapp"]
+    },
+    "text": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0
+    },
     "user": {
-      "type": "object",
-      "required": ["id", "name", "isBot"],
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "username": { "type": "string" },
-        "isBot": { "type": "boolean" }
-      },
-      "additionalProperties": false
+      "$ref": "#/$defs/UserAuthor"
+    },
+    "author": {
+      "$ref": "#/$defs/UserAuthor"
     },
     "channel": {
       "type": "object",
       "required": ["id", "isDirectMessage"],
       "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "isDirectMessage": { "type": "boolean" }
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": ["string", "null"]
+        },
+        "isDirectMessage": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "url"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["image", "video", "audio", "document"]
+          },
+          "url": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "UserAuthor": {
+      "type": "object",
+      "required": ["id", "name", "isBot"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "username": {
+          "type": ["string", "null"]
+        },
+        "isBot": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     }
-  },
-  "additionalProperties": true
+  }
 }
