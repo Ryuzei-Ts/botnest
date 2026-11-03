@@ -1,10 +1,31 @@
 {
   "name": "@ryuzei/botnest",
   "version": "1.0.0",
-  "description": "Unified universal multi-platform bot core and runtime",
+  "description": "High-performance universal multi-platform bot framework for WhatsApp (Baileys), Discord.js & Telegram (Telegraf) with unified lifecycle, pairing code support & zero-boilerplate routing.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "homepage": "https://github.com/Ryuzei-Ts/botnest#readme",
+  "bugs": {
+    "url": "https://github.com/Ryuzei-Ts/botnest/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ryuzei-Ts/botnest.git"
+  },
+  "author": "Ryuzei-Ts",
+  "license": "MIT",
+  "keywords": [
+    "bot",
+    "botnest",
+    "whatsapp",
+    "baileys",
+    "discord",
+    "discordjs",
+    "telegram",
+    "telegraf",
+    "multi-platform"
+  ],
   "exports": {
     ".": "./src/index.ts",
     "./*": "./src/*.ts"
