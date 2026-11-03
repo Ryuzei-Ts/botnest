@@ -1,6 +1,6 @@
 /**
  * @file src/adapters/whatsapp.ts
- * @description Advanced Baileys WhatsApp adapter with dynamic session routing, subbot pooling & multi-session isolation.
+ * @description Production-grade Baileys adapter with deep message unnesting, stable pairing codes & Signal handshake protection.
  */
 
 import {
@@ -49,11 +49,43 @@ interface ActiveSessionInstance {
   status: 'connecting' | 'open' | 'closed';
 }
 
+function cleanPhoneNumber(num: string): string {
+  let cleaned = num.replace(/[^0-9]/g, '');
+  if (cleaned.startsWith('521') && cleaned.length === 13) {
+    cleaned = '52' + cleaned.slice(3);
+  }
+  return cleaned;
+}
+
+function extractText(message: proto.IMessage | null | undefined): string {
+  if (!message) return '';
+
+  let m: any = message;
+  if (m.ephemeralMessage?.message) m = m.ephemeralMessage.message;
+  if (m.viewOnceMessage?.message) m = m.viewOnceMessage.message;
+  if (m.viewOnceMessageV2?.message) m = m.viewOnceMessageV2.message;
+  if (m.documentWithCaptionMessage?.message) m = m.documentWithCaptionMessage.message;
+
+  return (
+    m.conversation ||
+    m.extendedTextMessage?.text ||
+    m.imageMessage?.caption ||
+    m.videoMessage?.caption ||
+    m.documentMessage?.caption ||
+    m.buttonsResponseMessage?.selectedButtonId ||
+    m.listResponseMessage?.singleSelectReply?.selectedRowId ||
+    m.templateButtonReplyMessage?.selectedId ||
+    m.interactiveResponseMessage?.nativeFlowResponseMessage?.paramsJson ||
+    ''
+  ).trim();
+}
+
 export class WhatsAppAdapter implements AdapterLifecycle {
   readonly platform = 'whatsapp';
   private sessions = new Map<string, ActiveSessionInstance>();
   private dispatch: ((ctx: MessageContext) => Promise<void>) | null = null;
-  private errorListener: ErrorListener = (err, platform, ctx) => console.error(`[WhatsApp Error] [${platform}]:`, err);
+  private errorListener: ErrorListener = (err, platform, ctx) =>
+    console.error(`[WhatsApp Error] [${platform}]:`, err);
 
   constructor(private config: WhatsAppConfig = {}) {}
 
@@ -88,7 +120,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(targetSessionPath);
-    const { version } = await fetchLatestBaileysVersion();
+    const { version } = await fetchLatestBaileysVersion().catch(() => ({
+      version: [2, 3000, 1015901307] as [number, number, number]
+    }));
 
     const sock = makeWASocket({
       version,
@@ -99,12 +133,12 @@ export class WhatsAppAdapter implements AdapterLifecycle {
       generateHighQualityLinkPreview: false,
       syncFullHistory: false,
       markOnlineOnConnect: false,
-      connectTimeoutMs: 30000,
+      connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 0,
-      keepAliveIntervalMs: 15000,
+      keepAliveIntervalMs: 25000,
       emitOwnEvents: false,
       fireInitQueries: false,
-      transactionOpts: { maxCommitRetries: 1, delayBetweenTriesMs: 10 }
+      transactionOpts: { maxCommitRetries: 2, delayBetweenTriesMs: 50 }
     });
 
     const sessionRecord: ActiveSessionInstance = {
@@ -127,7 +161,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
             number = await options.phoneNumberProvider();
           }
           if (number) {
-            const clean = number.replace(/[^0-9]/g, '');
+            const clean = cleanPhoneNumber(number);
             const code = await sock.requestPairingCode(clean);
             if (options.onPairingCode) {
               options.onPairingCode(code);
@@ -136,7 +170,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         } catch (err) {
           this.errorListener(err as Error, this.platform, { botId });
         }
-      }, 3000);
+      }, 3500);
     }
 
     sock.ev.on('connection.update', async (update) => {
@@ -156,7 +190,11 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
         if (shouldReconnect) {
-          await this.spawnSession(options).catch((err) => this.errorListener(err, this.platform, { botId }));
+          setTimeout(async () => {
+            await this.spawnSession(options).catch((err) =>
+              this.errorListener(err, this.platform, { botId })
+            );
+          }, 2000);
         } else {
           this.sessions.delete(botId);
         }
@@ -170,15 +208,9 @@ export class WhatsAppAdapter implements AdapterLifecycle {
         if (!raw.message || raw.key.fromMe) continue;
 
         const remoteJid = raw.key.remoteJid;
-        if (!remoteJid) continue;
+        if (!remoteJid || remoteJid === 'status@broadcast') continue;
 
-        const text =
-          raw.message.conversation ||
-          raw.message.extendedTextMessage?.text ||
-          raw.message.imageMessage?.caption ||
-          raw.message.videoMessage?.caption ||
-          '';
-
+        const text = extractText(raw.message);
         const senderJid = raw.key.participant || remoteJid;
         const isGroup = remoteJid.endsWith('@g.us');
 
@@ -212,7 +244,7 @@ export class WhatsAppAdapter implements AdapterLifecycle {
           }
         };
 
-        await this.dispatch(ctx).catch((err) => this.errorListener(err, this.platform, raw));
+        this.dispatch(ctx).catch((err) => this.errorListener(err, this.platform, raw));
       }
     });
 
