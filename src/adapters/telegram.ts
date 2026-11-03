@@ -1,8 +1,3 @@
-/**
- * @file src/adapters/telegram.ts
- * @description Transport layer implementation over Telegraf.
- */
-
 import { Telegraf } from 'telegraf'
 import { message } from 'telegraf/filters'
 import type {
@@ -16,6 +11,8 @@ import type {
 
 export interface TelegramConfig {
   token: string
+  allowBots?: boolean
+  onConnect?: string | ((botInfo: any) => void | Promise<void>)
 }
 
 export class TelegramAdapter implements AdapterLifecycle {
@@ -31,6 +28,8 @@ export class TelegramAdapter implements AdapterLifecycle {
       if (!this.dispatch) return
 
       const from = telegramCtx.message.from
+      if (from.is_bot && !this.config.allowBots) return
+
       const authorData: UserAuthor = {
         id: from.id.toString(),
         name: [from.first_name, from.last_name].filter(Boolean).join(' '),
@@ -66,7 +65,19 @@ export class TelegramAdapter implements AdapterLifecycle {
   }
 
   async start(): Promise<void> {
-    this.bot.launch().catch((err) => this.errorListener(err, this.platform))
+    this.bot
+      .launch()
+      .then(async () => {
+        const botInfo = this.bot.botInfo
+        if (typeof this.config.onConnect === 'function') {
+          await this.config.onConnect(botInfo)
+        } else if (typeof this.config.onConnect === 'string') {
+          console.log(this.config.onConnect)
+        } else {
+          console.log(`[Telegram] Conectado exitosamente como @${botInfo?.username || 'bot'}`)
+        }
+      })
+      .catch((err) => this.errorListener(err, this.platform))
   }
 
   async stop(): Promise<void> {
