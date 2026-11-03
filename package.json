@@ -28,6 +28,7 @@
   ],
   "exports": {
     ".": "./src/index.ts",
+    "./native": "./native.node",
     "./*": "./src/*.ts"
   },
   "imports": {
@@ -46,9 +47,11 @@
     "#telemetry": "./src/telemetry/index.ts",
     "#telemetry/*": "./src/telemetry/*.ts",
     "#security": "./src/security/index.ts",
-    "#security/*": "./src/security/*.ts"
+    "#security/*": "./src/security/*.ts",
+    "#native": "./native.node"
   },
   "scripts": {
+    "build:native": "cd native && cargo build --release && cp target/release/libnative.so ../native.node 2>/dev/null || cp target/release/libnative.dylib ../native.node 2>/dev/null || true",
     "dev": "node --experimental-strip-types src/index.ts"
   },
   "dependencies": {
