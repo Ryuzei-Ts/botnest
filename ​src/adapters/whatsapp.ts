@@ -1,6 +1,6 @@
 /**
  * @file src/adapters/whatsapp.ts
- * @description Transport layer implementation over @whiskeysockets/baileys.
+ * @description Transport layer implementation over @whiskeysockets/baileys with author alias and factory export.
  */
 
 import {
@@ -16,7 +16,8 @@ import type {
   MessageContext,
   ErrorListener,
   SentResult,
-  ReplyOptions
+  ReplyOptions,
+  UserAuthor
 } from '#core'
 
 export interface WhatsAppConfig {
@@ -74,21 +75,25 @@ export class WhatsAppAdapter implements AdapterLifecycle {
           raw.message.conversation ||
           raw.message.extendedTextMessage?.text ||
           raw.message.imageMessage?.caption ||
+          raw.message.videoMessage?.caption ||
           ''
 
         const senderJid = raw.key.participant || remoteJid
         const isGroup = remoteJid.endsWith('@g.us')
+
+        const authorData: UserAuthor = {
+          id: senderJid,
+          name: raw.pushName || senderJid.split('@')[0],
+          isBot: false
+        }
 
         const ctx: MessageContext = {
           id: raw.key.id ?? Date.now().toString(),
           platform: this.platform,
           text,
           timestamp: typeof raw.messageTimestamp === 'number' ? raw.messageTimestamp * 1000 : Date.now(),
-          user: {
-            id: senderJid,
-            name: raw.pushName || senderJid.split('@')[0],
-            isBot: false
-          },
+          user: authorData,
+          author: authorData,
           channel: {
             id: remoteJid,
             isDirectMessage: !isGroup
@@ -137,4 +142,8 @@ export class WhatsAppAdapter implements AdapterLifecycle {
   onError(listener: ErrorListener): void {
     this.errorListener = listener
   }
+}
+
+export function whatsapp(config: WhatsAppConfig = {}): WhatsAppAdapter {
+  return new WhatsAppAdapter(config)
 }
