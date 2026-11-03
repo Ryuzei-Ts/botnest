@@ -1,5 +1,5 @@
 [package]
-name = "botnest-native"
+name = "botnest_native"
 version = "0.1.0"
 edition = "2021"
 
@@ -9,5 +9,6 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "2.16", default-features = false, features = ["napi4"] }
 napi-derive = "2.16"
-regex = "1.10"
-dashmap = "5.5"
+
+[build-dependencies]
+napi-build = "2.1"
