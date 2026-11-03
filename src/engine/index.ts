@@ -5,3 +5,4 @@
 
 export * from './nest.ts'
 export * from './bridge.ts'
+export * from './ai_client.ts'
