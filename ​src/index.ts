@@ -1,7 +1,7 @@
 /**
  * @file src/index.ts
  * @package @ryuzei/botnest
- * @description High-throughput multi-platform orchestrator entrypoint with Python IPC worker.
+ * @description High-throughput multi-platform orchestrator entrypoint without inline commands.
  */
 
 import { BotNest, createNest, PythonBridge } from '#engine'
@@ -50,68 +50,6 @@ nest.use(async (ctx: MessageContext, next: NextFunction) => {
 nest.use(async (ctx: MessageContext, next: NextFunction) => {
   const sessionKey = sessions.getSessionKey(ctx.platform, ctx.user.id, ctx.channel.id)
   await sessions.update(sessionKey, { lastInteraction: Date.now() })
-
-  const command = ctx.text.trim().toLowerCase()
-
-  if (command === '!ping' || command === '/ping') {
-    const start = ctx.timestamp
-    const latency = Date.now() - start
-
-    await queue.enqueue(ctx.platform, async () => {
-      const content = security.sanitizeOutput(`[${ctx.platform.toUpperCase()}] pong [${latency}ms]`)
-      await ctx.reply(content)
-    })
-    return
-  }
-
-  if (command === '!hola' || command === '/hola') {
-    await queue.enqueue(ctx.platform, async () => {
-      const targetName = ctx.author?.name || ctx.user.name
-      await ctx.reply(security.sanitizeOutput(`Hola ${targetName}`))
-    })
-    return
-  }
-
-  if (command.startsWith('!nlp ')) {
-    const targetText = ctx.text.slice(5).trim()
-    try {
-      const pyRes = await python.execute({
-        command: 'sentiment',
-        text: targetText,
-        platform: ctx.platform
-      })
-
-      const replyContent = `[NLP Worker ${pyRes.runtime}] Sentiment: ${JSON.stringify(pyRes.result)} (${pyRes.latency_ms}ms)`
-      await queue.enqueue(ctx.platform, async () => {
-        await ctx.reply(security.sanitizeOutput(replyContent))
-      })
-    } catch (err) {
-      await ctx.reply(`[Worker Error] Failed to connect to Python IPC: ${(err as Error).message}`)
-    }
-    return
-  }
-
-  if (command === '!metrics') {
-    const snap = metrics.snapshot() as {
-      quantiles: { p50: number; p90: number; p99: number; samples: number }
-      uptimeSeconds: number
-    }
-    const mem = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)
-
-    const response = [
-      '=== BOTNEST TELEMETRY ===',
-      `Uptime: ${snap.uptimeSeconds}s`,
-      `Heap: ${mem} MB`,
-      `Samples: ${snap.quantiles.samples}`,
-      `Latencies: p50: ${snap.quantiles.p50}ms | p90: ${snap.quantiles.p90}ms | p99: ${snap.quantiles.p99}ms`
-    ].join('\n')
-
-    await queue.enqueue(ctx.platform, async () => {
-      await ctx.reply(security.sanitizeOutput(response))
-    })
-    return
-  }
-
   await next()
 })
 
